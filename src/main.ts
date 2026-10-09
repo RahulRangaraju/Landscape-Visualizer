@@ -2,6 +2,8 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './style.css';
 import type { Feature } from 'geojson';
+import { counties } from './counties';
+import type { County, ParcelInfo } from './counties';
 
 const zoom: number = 19;
 const map: L.Map = L.map('map').setView([34.8436, -82.3940], zoom);
@@ -11,7 +13,7 @@ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/
   maxZoom: zoom,
 }).addTo(map);
 
-// const marker: L.CircleMarker = L.circleMarker([34.8436, -82.3940], { radius: 8 }).addTo(map);
+const marker: L.CircleMarker = L.circleMarker([34.8436, -82.3940], { radius: 8 }).addTo(map);
 
 const input = document.querySelector<HTMLInputElement>('#address')!;
 const button = document.querySelector<HTMLButtonElement>('#search')!;
@@ -46,7 +48,7 @@ async function geocode(address: string): Promise<GeocodeResult | null>
 
 //Parcels
 
-const PARCEL_URL = 'https://citygis.greenvillesc.gov/arcgis/rest/services/AddressSearch/Property/MapServer/3/query';
+
 const ADDRESS_URL = 'https://citygis.greenvillesc.gov/arcgis/rest/services/AddressSearch/Property/MapServer/0/query';
 
 async function queryPoint(layerUrl: string, lat: number, lng: number): Promise<Feature | null>
@@ -87,18 +89,59 @@ async function addressPointLookup(matched: string): Promise<LatLng | null> {
 
 let parcelLayer: L.GeoJSON | null = null;
 
-async function showParcelAt(lat: number, lng: number): Promise <boolean>
-{
-    const parcel = await queryPoint(PARCEL_URL, lat, lng);
-    if (parcelLayer){
-	parcelLayer.remove();
+const info = document.querySelector<HTMLDivElement>('#info')!;
+
+function formatMoney(n: unknown): string {
+    return typeof n === 'number' ? '$' + n.toLocaleString() : 'n/a';
+}
+
+function showInfo(parcel: ParcelInfo | null): void {
+    info.replaceChildren();
+    if (parcel === null) {
+        info.style.display = 'none';
+        return;
+    }
+    const rows: [string, string][] = [
+        ['PIN', parcel.pin ?? 'n/a'],
+        ['Address', parcel.address ?? 'n/a'],
+        ['Acres', parcel.acres !== null ? parcel.acres.toFixed(2) : 'n/a'],
+        ['Land use', parcel.landUse ?? 'n/a'],
+        ['Zoning', parcel.zoning ?? 'n/a'],
+        ['Market value', parcel.marketValue !== null ? formatMoney(parcel.marketValue) : 'n/a'],
+        ['Last sale', parcel.lastSalePrice !== null ? formatMoney(parcel.lastSalePrice) : 'n/a'],
+        ['Sale date', parcel.lastSaleDate ? parcel.lastSaleDate.toLocaleDateString() : 'n/a'],
+    ];
+    for (const [label, value] of rows) {
+        const line = document.createElement('div');
+        line.textContent = `${label}: ${value}`;
+        info.appendChild(line);
+    }
+    info.style.display = 'block';
+}
+
+async function findParcel(lat: number, lng: number): Promise<{ county: County; feature: Feature } | null> {
+    for (const county of counties) {
+        const feature = await queryPoint(county.parcelUrl, lat, lng);
+        if (feature !== null) {
+            return { county, feature };
+        }
+    }
+    return null;
+}
+
+async function showParcelAt(lat: number, lng: number): Promise<boolean> {
+    const hit = await findParcel(lat, lng);
+    if (parcelLayer) {
+        parcelLayer.remove();
     }
     parcelLayer = null;
-    if (parcel === null){
-	return false;
+    if (hit === null) {
+        showInfo(null);
+        return false;
     }
-    parcelLayer = L.geoJSON(parcel, {
-	style: { color: 'yellow', weight: 3, fillOpacity: 0.15 },
+    showInfo(hit.county.toParcelInfo(hit.feature));
+    parcelLayer = L.geoJSON(hit.feature, {
+        style: { color: 'yellow', weight: 3, fillOpacity: 0.15 },
     }).addTo(map);
     return true;
 }
@@ -130,7 +173,7 @@ button.addEventListener('click', async () => {
 	map.fitBounds(parcelLayer.getBounds(), { maxZoom: 19 });
     }
     else {
-	map.setView([result.lat, result.lng], 19);
+	map.setView([point.lat, point.lng], 19);
 	alert('Found the address, but no parcel at that point');
     }
     } catch (error) {
