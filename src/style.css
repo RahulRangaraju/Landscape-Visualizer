@@ -1,4 +1,4 @@
 body { margin: 0; }
 #map { height: 100vh; }
 #controls { position: absolute; top: 10px; left: 50px; z-index: 1000; diplsay: flex; gaps: 6px; }
-#address { width: 320px; padding: 6px }
+#address { width: 320px; padding: 6px; }
